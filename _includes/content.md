@@ -60,13 +60,13 @@ var xs = require('xstream').default
 
 - [`create`](#create)
 - [`createWithMemory`](#createWithMemory)
-- [`createMimic`](#createMimic)
 - [`never`](#never)
 - [`empty`](#empty)
 - [`throw`](#throw)
 - [`of`](#of)
 - [`fromArray`](#fromArray)
 - [`fromPromise`](#fromPromise)
+- [`fromObservable`](#fromObservable)
 - [`periodic`](#periodic)
 - [`merge`](#merge)
 - [`combine`](#combine)
@@ -89,10 +89,11 @@ var xs = require('xstream').default
 - [`compose`](#compose)
 - [`remember`](#remember)
 - [`debug`](#debug)
+- [`imitate`](#imitate)
 - [`shamefullySendNext`](#shamefullySendNext)
 - [`shamefullySendError`](#shamefullySendError)
 - [`shamefullySendComplete`](#shamefullySendComplete)
-- [`imitate`](#imitate)
+- [`toObservable`](#toObservable)
 
 # Overview
 
@@ -244,15 +245,6 @@ Creates a new MemoryStream given a Producer.
 
 - - -
 
-### <a id="createMimic"></a> `createMimic()`
-
-Creates a new MimicStream, which can `imitate` another Stream. Only a
-MimicStream has the `imitate()` method.
-
-#### Returns:  MimicStream 
-
-- - -
-
 ### <a id="never"></a> `never()`
 
 Creates a Stream that does nothing when started. It never emits any event.
@@ -367,6 +359,18 @@ fromPromise( ----42 )
 
 - - -
 
+### <a id="fromObservable"></a> `fromObservable(observable)`
+
+Converts an observable to a stream.
+
+#### Arguments:
+
+- `observable: Observable` The observable to be converted as a stream.
+
+#### Returns:  Stream 
+
+- - -
+
 ### <a id="periodic"></a> `periodic(period)`
 
 Creates a stream that periodically emits incremental numbers, every
@@ -413,35 +417,30 @@ Marble diagram:
 
 - - -
 
-### <a id="combine"></a> `combine(project, stream1, stream2)`
+### <a id="combine"></a> `combine(stream1, stream2)`
 
-Combines multiple streams together to return a stream whose events are
-calculated from the latest events of each of the input streams.
+Combines multiple input streams together to return a stream whose events
+are arrays that collect the latest events from each input stream.
 
-*combine* remembers the most recent event from each of the input streams.
-When any of the input streams emits an event, that event together with all
-the other saved events are combined in the `project` function which should
-return a value. That value will be emitted on the output stream. It's
-essentially a way of mixing the events from multiple streams according to a
-formula.
+*combine* internally remembers the most recent event from each of the input
+streams. When any of the input streams emits an event, that event together
+with all the other saved events are combined into an array. That array will
+be emitted on the output stream. It's essentially a way of joining together
+the events from multiple streams.
 
 Marble diagram:
 
 ```text
 --1----2-----3--------4---
 ----a-----b-----c--d------
-  combine((x,y) => x+y)
+         combine
 ----1a-2a-2b-3b-3c-3d-4d--
 ```
 
 #### Arguments:
 
-- `project: Function` A function of type `(x: T1, y: T2) => R` or similar that takes the most recent events `x` and `y` from the input
-streams and returns a value. The output stream will emit that value. The
-number of arguments for this function should match the number of input
-streams.
 - `stream1: Stream` A stream to combine together with other streams.
-- `stream2: Stream` A stream to combine together with other streams. Two or more streams may be given as arguments.
+- `stream2: Stream` A stream to combine together with other streams. Multiple streams, not just two, may be given as arguments.
 
 #### Returns:  Stream 
 
@@ -793,6 +792,74 @@ as argument, and does not need to return anything.
 
 - - -
 
+### <a id="imitate"></a> `imitate(target)`
+
+*imitate* changes this current Stream to emit the same events that the
+`other` given Stream does. This method returns nothing.
+
+This method exists to allow one thing: **circular dependency of streams**.
+For instance, let's imagine that for some reason you need to create a
+circular dependency where stream `first$` depends on stream `second$`
+which in turn depends on `first$`:
+
+<!-- skip-example -->
+```js
+import delay from 'xstream/extra/delay'
+
+var first$ = second$.map(x => x * 10).take(3);
+var second$ = first$.map(x => x + 1).startWith(1).compose(delay(100));
+```
+
+However, that is invalid JavaScript, because `second$` is undefined
+on the first line. This is how *imitate* can help solve it:
+
+```js
+import delay from 'xstream/extra/delay'
+
+var secondProxy$ = xs.create();
+var first$ = secondProxy$.map(x => x * 10).take(3);
+var second$ = first$.map(x => x + 1).startWith(1).compose(delay(100));
+secondProxy$.imitate(second$);
+```
+
+We create `secondProxy$` before the others, so it can be used in the
+declaration of `first$`. Then, after both `first$` and `second$` are
+defined, we hook `secondProxy$` with `second$` with `imitate()` to tell
+that they are "the same". `imitate` will not trigger the start of any
+stream, it just binds `secondProxy$` and `second$` together.
+
+The following is an example where `imitate()` is important in Cycle.js
+applications. A parent component contains some child components. A child
+has an action stream which is given to the parent to define its state:
+
+<!-- skip-example -->
+```js
+const childActionProxy$ = xs.create();
+const parent = Parent({...sources, childAction$: childActionProxy$});
+const childAction$ = parent.state$.map(s => s.child.action$).flatten();
+childActionProxy$.imitate(childAction$);
+```
+
+Note, though, that **`imitate()` does not support MemoryStreams**. If we
+would attempt to imitate a MemoryStream in a circular dependency, we would
+either get a race condition (where the symptom would be "nothing happens")
+or an infinite cyclic emission of values. It's useful to think about
+MemoryStreams as cells in a spreadsheet. It doesn't make any sense to
+define a spreadsheet cell `A1` with a formula that depends on `B1` and
+cell `B1` defined with a formula that depends on `A1`.
+
+If you find yourself wanting to use `imitate()` with a
+MemoryStream, you should rework your code around `imitate()` to use a
+Stream instead. Look for the stream in the circular dependency that
+represents an event stream, and that would be a candidate for creating a
+proxy Stream which then imitates the target Stream.
+
+#### Arguments:
+
+- `target: Stream` The other stream to imitate on the current one. Must not be a MemoryStream.
+
+- - -
+
 ### <a id="shamefullySendNext"></a> `shamefullySendNext(value)`
 
 Forces the Stream to emit the given value to its listeners.
@@ -831,76 +898,9 @@ method. Use it only when you know what you are doing.
 
 - - -
 
-### <a id="imitate"></a> `imitate(other)`
+### <a id="toObservable"></a> `toObservable()`
 
-This method exists only on a MimicStream, which is created through
-`xs.createMimic()`. *imitate* changes this current MimicStream to behave
-like the `other` given stream.
-
-The `imitate` method and the `MimicStream` type exist to allow one thing:
-**circular dependency of streams**. For instance, let's imagine that for
-some reason you need to create a circular dependency where stream `first$`
-depends on stream `second$` which in turn depends on `first$`:
-
-<!-- skip-example -->
-```js
-import delay from 'xstream/extra/delay'
-
-var first$ = second$.map(x => x * 10).take(3);
-var second$ = first$.map(x => x + 1).startWith(1).compose(delay(100));
-```
-
-However, that is invalid JavaScript, because `second$` is undefined
-on the first line. This is how a MimicStream and imitate can help solve it:
-
-```js
-import delay from 'xstream/extra/delay'
-
-var secondMimic$ = xs.createMimic();
-var first$ = secondMimic$.map(x => x * 10).take(3);
-var second$ = first$.map(x => x + 1).startWith(1).compose(delay(100));
-secondMimic$.imitate(second$);
-```
-
-We create `secondMimic$` before the others, so it can be used in the
-declaration of `first$`. Then, after both `first$` and `second$` are
-defined, we hook `secondMimic$` with `second$` with `imitate()` to tell
-that they are "the same". `imitate` will not trigger the start of any
-stream, it simply forwards listeners of `secondMimic$` to `second$`.
-
-The following is an example where `imitate()` is important in Cycle.js
-applications. A parent component contains some child components. A child
-has an action stream which is given to the parent to define its state:
-
-<!-- skip-example -->
-```js
-const childActionMimic$ = xs.createMimic();
-const parent = Parent({...sources, childAction$: childActionMimic$});
-const childAction$ = parent.state$.map(s => s.child.action$).flatten();
-childActionMimic$.imitate(childAction$);
-```
-
-The *imitate* method returns nothing. Instead, it changes the behavior of
-the current stream, making it re-emit whatever events are emitted by the
-given `other` stream.
-
-Note, though, that **`imitate()` does not support MemoryStreams**. If we
-would attempt to imitate a MemoryStream in a circular dependency, we would
-either get a race condition (where the symptom would be "nothing happens")
-or an infinite cyclic emission of values. It's useful to think about
-MemoryStreams as cells in a spreadsheet. It doesn't make any sense to
-define a spreadsheet cell `A1` with a formula that depends on `B1` and
-cell `B1` defined with a formula that depends on `A1`.
-
-If you find yourself wanting to use `imitate()` with a
-MemoryStream, you should rework your code around `imitate()` to use a
-Stream instead. Look for the stream in the circular dependency that
-represents an event stream, and that would be a candidate for creating a
-MimicStream which then imitates the real event stream.
-
-#### Arguments:
-
-- `other: Stream` The stream to imitate on the current one. Must not be a MemoryStream.
+Converts stream to es-observable
 
 - - -
 
@@ -947,6 +947,6 @@ And can be interpreted/read as "when a `B` event happens, remember it and map it
 
 Read the [CHANGELOG](https://github.com/staltz/xstream/blob/master/CHANGELOG.md) for release notes of all versions of *xstream*.
 
-##License
+## License
 
 [MIT](https://github.com/staltz/xstream/blob/master/LICENSE)

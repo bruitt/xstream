@@ -1,3 +1,13 @@
+<a name="5.1.0"></a>
+# [5.1.0](https://github.com/staltz/xstream/compare/v5.0.5...v5.1.0) (2016-06-15)
+
+
+### Features
+
+* **ESObservable:** Initial es-observable implementation and support ([c7122d7](https://github.com/staltz/xstream/commit/c7122d7))
+
+
+
 <a name="5.0.5"></a>
 ## [5.0.5](https://github.com/staltz/xstream/compare/v5.0.4...v5.0.5) (2016-06-14)
 

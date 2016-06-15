@@ -2,6 +2,7 @@
 /// <reference path="../typings/globals/node/index.d.ts" />
 import xs, {Producer, Listener, Stream} from '../src/index';
 import * as assert from 'assert';
+import $$observable from 'symbol-observable';
 
 describe('Stream', () => {
   it('should have all the core static operators', () => {
@@ -13,6 +14,7 @@ describe('Stream', () => {
     assert.equal(typeof xs.of, 'function');
     assert.equal(typeof xs.fromArray, 'function');
     assert.equal(typeof xs.fromPromise, 'function');
+    assert.equal(typeof xs.fromObservable, 'function');
     assert.equal(typeof xs.periodic, 'function');
     assert.equal(typeof xs.merge, 'function');
     assert.equal(typeof xs.combine, 'function');
@@ -36,6 +38,8 @@ describe('Stream', () => {
     assert.equal(typeof stream.remember, 'function');
     assert.equal(typeof stream.debug, 'function');
     assert.equal(typeof stream.imitate, 'function');
+    assert.equal(typeof stream.toObservable, 'function');
+    assert.equal(typeof stream[$$observable], 'function');
   });
 
   it('should be createable giving a custom producer object', (done) => {
@@ -368,6 +372,24 @@ describe('Stream', () => {
         'next, error, and complete functions.');
         done();
       }
+    });
+  });
+
+  describe('toObservable', () => {
+    it('should convert stream to observable', (done) => {
+      const observable = xs.of(10).toObservable();
+      let nextSent = false;
+
+      observable.subscribe({
+        next: (x: Number) => {
+          assert.strictEqual(x, 10);
+          nextSent = true;
+        },
+        complete: () => {
+          assert.strictEqual(nextSent, true);
+          done();
+        }
+      });
     });
   });
 });

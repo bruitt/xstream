@@ -1,4 +1,95 @@
 import {Promise} from 'es6-promise';
+import $$observable from 'symbol-observable';
+
+function getTypeOf(val: any): string {
+  return Object.prototype.toString.call(val).slice(8, -1);
+}
+
+export interface Observer<T> {
+  next?: (x: T) => void;
+  error?: (err: any) => void;
+  complete?: () => void;
+}
+
+export interface Subscription {
+  unsubscribe(): void;
+}
+
+export interface Observable<T> {
+  subscribe(observerOrNext?: Observer<T> | ((x: T) => void), error?: (err: any) => void, complete?: () => void): Subscription;
+}
+
+export class ESObservable<T> implements Observable<T> {
+  private _stream: Stream<T>;
+
+  constructor(stream: Stream<T>) {
+    this._stream = stream;
+  }
+
+  subscribe(observerOrNext?: Observer<T> | ((x: T) => void), error?: (err: any) => void, complete?: () => void): Subscription {
+    const listener = this._getListener(observerOrNext, error, complete);
+    this._stream.addListener(listener);
+    return { unsubscribe: () => this._stream.removeListener(listener) };
+  }
+
+  _getListener(observerOrNext?: Observer<T> | ((x: T) => void), error?: (err: any) => void, complete?: () => void): Listener<T> {
+    let listener: Listener<T> = {
+      next: (x: T) => {},
+      error: (err: T) => {},
+      complete: () => {}
+    };
+
+    if (!!observerOrNext && (typeof observerOrNext !== 'function')) {
+      let observer = <Observer<T>> observerOrNext;
+
+      if (observer.next) {
+        listener.next = observer.next;
+      }
+      if (observer.error) {
+        listener.error = observer.error;
+      }
+      if (observer.complete) {
+        listener.complete = observer.complete;
+      }
+    } else {
+      if (observerOrNext) {
+        listener.next = <(x: T) => void> observerOrNext;
+      }
+      if (error) {
+        listener.error = <(err: any) => void> error;
+      }
+      if (complete) {
+        listener.complete = <() => void> complete;
+      }
+    }
+
+    return listener;
+  }
+
+  [$$observable](): Observable<T> {
+    return this;
+  }
+
+  static of<T>(...items: T[]): Observable<T> {
+    return Stream.of<T>(...items).toObservable();
+  }
+
+  static from<T>(observable: any): Observable<T> {
+    if (getTypeOf(observable) === 'Array') {
+      return new ESObservable<T>(Stream.fromArray<T>(observable));
+    }
+    if (getTypeOf(observable) === 'Promise') {
+      return new ESObservable<T>(Stream.fromPromise<T>(observable));
+    }
+    if (observable instanceof Stream) {
+      return new ESObservable<T>(observable);
+    }
+    if (observable[$$observable]) {
+      return observable[$$observable]();
+    }
+    throw new Error('Unsupported `from` argument type');
+  }
+}
 
 const NO = {};
 function noop() {}
@@ -78,6 +169,28 @@ function and<T>(f1: (t: T) => boolean, f2: (t: T) => boolean): (t: T) => boolean
   return function andFn(t: T): boolean {
     return f1(t) && f2(t);
   };
+}
+
+export class FromObservableProducer<T> implements InternalProducer<T> {
+  public type = 'fromObservable';
+  private _o: Observable<T>;
+  private _s: Subscription;
+
+  constructor(public o: Observable<T>) {
+    this._o = o[$$observable] ? o[$$observable]() : o;
+  }
+
+  _start(out: InternalListener<T>): void {
+    this._s = this._o.subscribe({
+      next(val) { out._n(val); },
+      error(err) { out._e(err); },
+      complete() { out._c(); }
+    });
+  }
+
+  _stop(): void {
+    this._s.unsubscribe();
+  }
 }
 
 export class MergeProducer<T> implements Aggregator<T, T>, InternalListener<T> {
@@ -1370,6 +1483,17 @@ export class Stream<T> implements InternalListener<T> {
   }
 
   /**
+   * Converts an observable to a stream.
+   *
+   * @factory true
+   * @param {Observable} observable The observable to be converted as a stream.
+   * @return {Stream}
+   */
+  static fromObservable<T>(observable: Observable<T>): Stream<T> {
+    return new Stream<T>(new FromObservableProducer(observable));
+  }
+
+  /**
    * Creates a stream that periodically emits incremental numbers, every
    * `period` milliseconds.
    *
@@ -1913,6 +2037,20 @@ export class Stream<T> implements InternalListener<T> {
    */
   shamefullySendComplete() {
     this._c();
+  }
+
+  /**
+   * Converts stream to es-observable 
+   */
+  toObservable(): Observable<T> {
+    return new ESObservable<T>(this);
+  }
+
+  /**
+   * Symbol.obesrvable alias for toObservable.
+   */
+  [$$observable](): Observable<T> {
+    return this.toObservable();
   }
 }
 

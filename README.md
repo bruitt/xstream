@@ -1,5 +1,6 @@
 <!-- This README.md is automatically generated from source code and files in the /markdown directory. Please DO NOT send pull requests to directly modify this README. Instead, edit the JSDoc comments in source code or the md files in /markdown/. -->
 
+Temporary fork with symbol-observable support
 ```text
           _
 __  _____| |_ _ __ ___  __ _ _ __ ___
@@ -76,6 +77,7 @@ var xs = require('xstream').default
 - [`of`](#of)
 - [`fromArray`](#fromArray)
 - [`fromPromise`](#fromPromise)
+- [`fromObservable`](#fromObservable)
 - [`periodic`](#periodic)
 - [`merge`](#merge)
 - [`combine`](#combine)
@@ -102,6 +104,7 @@ var xs = require('xstream').default
 - [`shamefullySendNext`](#shamefullySendNext)
 - [`shamefullySendError`](#shamefullySendError)
 - [`shamefullySendComplete`](#shamefullySendComplete)
+- [`toObservable`](#toObservable)
 
 # Overview
 
@@ -362,6 +365,18 @@ fromPromise( ----42 )
 #### Arguments:
 
 - `promise: Promise` The promise to be converted as a stream.
+
+#### Returns:  Stream 
+
+- - -
+
+### <a id="fromObservable"></a> `fromObservable(observable)`
+
+Converts an observable to a stream.
+
+#### Arguments:
+
+- `observable: Observable` The observable to be converted as a stream.
 
 #### Returns:  Stream 
 
@@ -891,6 +906,12 @@ Forces the Stream to emit the "completed" event to its listeners.
 As the name indicates, if you use this, you are most likely doing something
 The Wrong Way. Please try to understand the reactive way before using this
 method. Use it only when you know what you are doing.
+
+- - -
+
+### <a id="toObservable"></a> `toObservable()`
+
+Converts stream to es-observable
 
 - - -
 
